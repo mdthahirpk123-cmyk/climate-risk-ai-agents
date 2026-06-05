@@ -1,6 +1,6 @@
 # ============================================================
-# CLIMATE RISK BENCHMARKER — STREAMLIT UI (Version 2)
-# Enhanced with Geography input
+# CLIMATE RISK BENCHMARKER — STREAMLIT UI (Version 3)
+# Enhanced with Geography and Value Chain inputs
 # ============================================================
 
 import streamlit as st
@@ -26,7 +26,7 @@ st.markdown("**Powered by AI** — searches peer TCFD reports, CDP disclosures, 
 st.caption("* Required fields")
 st.divider()
 
-# ── Input section ─────────────────────────────────────────
+# ── Mandatory inputs ──────────────────────────────────────
 col1, col2 = st.columns([1, 1])
 
 with col1:
@@ -41,11 +41,24 @@ with col2:
         placeholder="e.g. Airport Operations, Steel Manufacturing, Retail"
     )
 
-# Geography — full width below the two columns
+# ── Geography ─────────────────────────────────────────────
 geography = st.text_input(
     "Geography (optional)",
     placeholder="e.g. India, Australia, GCC, Global Operations"
 )
+
+# ── Value Chain Scope ─────────────────────────────────────
+st.markdown("**Value Chain Scope** (optional)")
+st.caption("Select which parts of the value chain to include in the analysis")
+
+col_vc1, col_vc2, col_vc3 = st.columns([1, 1, 1])
+
+with col_vc1:
+    upstream = st.checkbox("Upstream", value=True)
+with col_vc2:
+    own_operations = st.checkbox("Own Operations", value=True)
+with col_vc3:
+    downstream = st.checkbox("Downstream", value=True)
 
 # ── Run button ────────────────────────────────────────────
 run_button = st.button("🔍 Run Climate Risk Analysis", type="primary")
@@ -97,6 +110,7 @@ def setup_agent():
     Category: [category from list above]
     Name: [short descriptive name]
     Description: [2-3 sentences explaining the risk]
+    Value Chain Affected: [Upstream / Own Operations / Downstream / Multiple]
     Timeframe: [NEAR/MEDIUM/LONG-TERM]
     Materiality: [HIGH/MEDIUM/LOW]
     Source: [document name or URL]
@@ -119,10 +133,26 @@ if run_button:
     else:
         agent = setup_agent()
 
-        # Build geography context
+        # ── Build geography context ───────────────────────
         geography_context = f"The company operates in {geography}." if geography else ""
         geography_search = f"in {geography}" if geography else ""
         geography_instruction = f"Pay particular attention to geography-specific physical risks for {geography} such as region-specific hazards, local regulations, and climate patterns." if geography else ""
+
+        # ── Build value chain context ─────────────────────
+        selected_value_chain = []
+        if upstream:
+            selected_value_chain.append("Upstream (raw material sourcing and supply chain)")
+        if own_operations:
+            selected_value_chain.append("Own Operations (direct assets, facilities, and processes)")
+        if downstream:
+            selected_value_chain.append("Downstream (products, customers, and end of life)")
+
+        if selected_value_chain:
+            value_chain_context = f"Focus the analysis on these value chain stages: {', '.join(selected_value_chain)}."
+            value_chain_instruction = f"For each risk and opportunity, specify which value chain stage is affected — Upstream, Own Operations, or Downstream. Only include risks relevant to these selected value chain stages: {', '.join(selected_value_chain)}."
+        else:
+            value_chain_context = ""
+            value_chain_instruction = ""
 
         with st.spinner(f"Analysing climate risks for {company}... this takes 2-3 minutes"):
 
@@ -149,6 +179,8 @@ if run_button:
             Follow the exact format in your instructions.
             Include both physical AND transition risks.
             {geography_instruction}
+            {value_chain_context}
+            {value_chain_instruction}
             """
 
             result = agent.invoke({
@@ -175,6 +207,7 @@ if run_button:
 Company: {company}
 Sector: {sector}
 Geography: {geography if geography else 'Not specified'}
+Value Chain Scope: {', '.join(selected_value_chain) if selected_value_chain else 'Not specified'}
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 {'='*60}
 
