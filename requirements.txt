@@ -1,0 +1,11 @@
+langchain
+langchain-openai
+langchain-community
+langchain-tavily
+langgraph
+openai
+chromadb
+pypdf
+python-dotenv
+tavily-python
+streamlit
