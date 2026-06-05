@@ -1,6 +1,7 @@
 # ============================================================
-# CLIMATE RISK BENCHMARKER — STREAMLIT UI (Version 4)
-# Enhanced with Geography, Value Chain, and Reporting Framework
+# CLIMATE RISK BENCHMARKER — STREAMLIT UI (Version 6)
+# Enhanced with Geography, Value Chain, Reporting Framework,
+# Document Upload, and Peer Selection
 # ============================================================
 
 import streamlit as st
@@ -9,6 +10,10 @@ from langchain_openai import ChatOpenAI
 from langchain_tavily import TavilySearch
 from langgraph.prebuilt import create_react_agent
 from datetime import datetime
+import pypdf
+import docx
+import pptx
+import io
 
 # Load API keys
 load_dotenv()
@@ -19,6 +24,22 @@ st.set_page_config(
     page_icon="🌍",
     layout="wide"
 )
+
+# ── Session state initialisation ──────────────────────────
+# Session state remembers values across page reruns
+# Without this, generated peers and manual peers
+# would disappear every time any button is clicked
+if "generated_peers" not in st.session_state:
+    st.session_state.generated_peers = []
+
+if "selected_generated_peers" not in st.session_state:
+    st.session_state.selected_generated_peers = []
+
+if "manual_peers" not in st.session_state:
+    st.session_state.manual_peers = []
+
+if "manual_peer_input" not in st.session_state:
+    st.session_state.manual_peer_input = ""
 
 # ── Page header ───────────────────────────────────────────
 st.title("🌍 Climate Risk Benchmarker")
@@ -63,14 +84,9 @@ with col_vc3:
 st.divider()
 
 # ── Reporting Framework ───────────────────────────────────
-# Each framework has a name and a description of how it
-# changes the agent's analysis approach
 st.markdown("**Reporting Framework** (optional)")
 st.caption("Select one or more frameworks to align the output to. Leave blank for a general TCFD-aligned output.")
 
-# Framework definitions
-# Each entry: display name, short description shown to user,
-# and instructions sent to the agent
 FRAMEWORKS = {
     "TCFD": {
         "label": "TCFD",
@@ -149,8 +165,6 @@ FRAMEWORKS = {
     }
 }
 
-# Display frameworks in a 4-column grid
-# This makes it look clean and organised on the page
 fw_col1, fw_col2, fw_col3, fw_col4 = st.columns(4)
 fw_columns = [fw_col1, fw_col2, fw_col3, fw_col4]
 
@@ -166,6 +180,210 @@ for i, (key, fw) in enumerate(FRAMEWORKS.items()):
 
 st.divider()
 
+# ── Peer Selection ────────────────────────────────────────
+st.markdown("**Peer Companies** (optional)")
+st.caption("Add peers for the agent to specifically search their climate disclosures and sustainability reports.")
+
+# ── Option 1: Generate Peers automatically ────────────────
+st.markdown("**Option 1 — Generate peers automatically**")
+st.caption("Click the button to let the AI suggest relevant peer companies based on your inputs above.")
+
+generate_peers_button = st.button("🔎 Generate Peers")
+
+# When Generate Peers is clicked
+if generate_peers_button:
+    if not company or not sector:
+        st.warning("⚠️ Please fill in Company Name and Sector before generating peers.")
+    else:
+        # This is a separate mini agent call
+        # It only searches for peers — not climate risks
+        # Much faster than the main analysis — about 30 seconds
+        with st.spinner("Finding relevant peer companies..."):
+
+            llm_peers = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+            search_peers = TavilySearch(max_results=5)
+
+            peers_agent = create_react_agent(
+                model=llm_peers,
+                tools=[search_peers],
+                prompt="""You are a sustainability research analyst. 
+                Your job is to identify relevant peer companies for 
+                climate risk benchmarking. 
+                Return exactly 6 peers in this format for each:
+                PEER: [Company Name] | REASON: [one sentence why they are relevant]
+                Only return the list. No other text."""
+            )
+
+            peers_question = f"""
+            Find 6 relevant peer companies for {company}, 
+            a {sector} company{f' based in {geography}' if geography else ''}.
+            
+            Peers should be similar in:
+            - Sector and business activities
+            - Geographic exposure where possible
+            - Size and operational complexity
+            
+            Focus on companies with strong publicly available 
+            climate disclosures — TCFD reports, CDP responses, 
+            or sustainability reports.
+            """
+
+            peers_result = peers_agent.invoke({
+                "messages": [("human", peers_question)]
+            })
+
+            peers_output = peers_result["messages"][-1].content
+
+            # Parse the output into a list of peers
+            # Each line starting with PEER: becomes one item
+            parsed_peers = []
+            for line in peers_output.split("\n"):
+                if line.strip().startswith("PEER:"):
+                    parsed_peers.append(line.strip())
+
+            # Store in session state so they survive page reruns
+            st.session_state.generated_peers = parsed_peers
+
+# Show generated peers as checkboxes if they exist
+if st.session_state.generated_peers:
+    st.markdown("**Select peers to include:**")
+    selected_generated_peers = []
+
+    for peer in st.session_state.generated_peers:
+        # Split the line into company name and reason
+        # Format: PEER: [name] | REASON: [reason]
+        try:
+            parts = peer.replace("PEER:", "").split("|")
+            peer_name = parts[0].strip()
+            peer_reason = parts[1].replace("REASON:", "").strip() if len(parts) > 1 else ""
+
+            # Show checkbox with peer name
+            # Show reason as small grey caption below
+            if st.checkbox(peer_name, key=f"gen_peer_{peer_name}"):
+                selected_generated_peers.append(peer_name)
+            if peer_reason:
+                st.caption(f"  {peer_reason}")
+
+        except Exception:
+            # If parsing fails just show the raw line
+            if st.checkbox(peer, key=f"gen_peer_{peer}"):
+                selected_generated_peers.append(peer)
+else:
+    selected_generated_peers = []
+
+st.divider()
+
+# ── Option 2: Add peers manually ─────────────────────────
+st.markdown("**Option 2 — Add peers manually**")
+st.caption("Type any peer company name and click Add. You can add as many as you want.")
+
+# Text input and Add button side by side
+manual_col1, manual_col2 = st.columns([4, 1])
+
+with manual_col1:
+    new_peer = st.text_input(
+        "Peer company name",
+        placeholder="e.g. Brisbane Airport",
+        label_visibility="collapsed"
+    )
+
+with manual_col2:
+    add_peer_button = st.button("+ Add", type="secondary")
+
+# When Add button is clicked
+# Add the typed peer to the manual peers list in session state
+if add_peer_button:
+    if new_peer.strip():
+        if new_peer.strip() not in st.session_state.manual_peers:
+            st.session_state.manual_peers.append(new_peer.strip())
+    else:
+        st.warning("Please type a peer company name before clicking Add.")
+
+# Show manually added peers with remove buttons
+if st.session_state.manual_peers:
+    st.markdown("**Manually added peers:**")
+    for i, peer in enumerate(st.session_state.manual_peers):
+        peer_col1, peer_col2 = st.columns([6, 1])
+        with peer_col1:
+            st.markdown(f"• {peer}")
+        with peer_col2:
+            # Each remove button has a unique key using the index
+            if st.button("✕", key=f"remove_peer_{i}"):
+                st.session_state.manual_peers.pop(i)
+                st.rerun()
+
+st.divider()
+
+# ── Document Upload ───────────────────────────────────────
+st.markdown("**Upload Documents** (optional)")
+st.caption("Upload any relevant documents — previous risk assessments, sustainability reports, exposure assessments. The agent will read these alongside its web search.")
+st.caption("Hold Ctrl to select multiple files at once. Accepted: PDF, PPTX, DOCX")
+
+uploaded_files = st.file_uploader(
+    "Upload files",
+    accept_multiple_files=True,
+    type=["pdf", "pptx", "docx"],
+    label_visibility="collapsed"
+)
+
+# ── File reading functions ────────────────────────────────
+def read_pdf(file):
+    try:
+        pdf_reader = pypdf.PdfReader(file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        return f"Could not read PDF: {str(e)}"
+
+def read_docx(file):
+    try:
+        doc = docx.Document(file)
+        text = ""
+        for paragraph in doc.paragraphs:
+            text += paragraph.text + "\n"
+        return text
+    except Exception as e:
+        return f"Could not read DOCX: {str(e)}"
+
+def read_pptx(file):
+    try:
+        presentation = pptx.Presentation(file)
+        text = ""
+        for slide_num, slide in enumerate(presentation.slides):
+            text += f"\n--- Slide {slide_num + 1} ---\n"
+            for shape in slide.shapes:
+                if hasattr(shape, "text"):
+                    text += shape.text + "\n"
+        return text
+    except Exception as e:
+        return f"Could not read PPTX: {str(e)}"
+
+def extract_text_from_files(files):
+    all_text = ""
+    for file in files:
+        file_name = file.name
+        file_extension = file_name.split(".")[-1].lower()
+        all_text += f"\n\n{'='*40}\n"
+        all_text += f"DOCUMENT: {file_name}\n"
+        all_text += f"{'='*40}\n"
+        file_bytes = io.BytesIO(file.read())
+        if file_extension == "pdf":
+            all_text += read_pdf(file_bytes)
+        elif file_extension == "docx":
+            all_text += read_docx(file_bytes)
+        elif file_extension == "pptx":
+            all_text += read_pptx(file_bytes)
+    return all_text
+
+if uploaded_files:
+    st.success(f"✅ {len(uploaded_files)} file(s) uploaded successfully:")
+    for file in uploaded_files:
+        st.caption(f"📄 {file.name}")
+
+st.divider()
+
 # ── Run button ────────────────────────────────────────────
 run_button = st.button("🔍 Run Climate Risk Analysis", type="primary")
 
@@ -173,7 +391,6 @@ run_button = st.button("🔍 Run Climate Risk Analysis", type="primary")
 @st.cache_resource
 def setup_agent():
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
-
     search_broad = TavilySearch(max_results=3)
     search_deep = TavilySearch(max_results=5)
     tools = [search_broad, search_deep]
@@ -189,6 +406,7 @@ def setup_agent():
     - Industry association reports
     - IPCC sector-specific guidance
     - Regulatory frameworks (EU Taxonomy, CSRD, SFDR)
+    - Any additional documents provided by the user
 
     STRICT RULES you must always follow:
 
@@ -267,16 +485,51 @@ if run_button:
             framework_instructions = "\n".join([FRAMEWORKS[f]["instruction"] for f in selected_frameworks])
             framework_context = f"""
             The output must be aligned to these reporting frameworks: {', '.join(framework_names)}.
-            
             Framework-specific instructions:
             {framework_instructions}
-            
-            For each risk and opportunity, include a 'Framework Relevance' field 
+            For each risk and opportunity, include a Framework Relevance field 
             showing which of these frameworks ({', '.join(framework_names)}) 
             specifically flag or require disclosure of this risk.
             """
         else:
             framework_context = "Use general TCFD-aligned categories for the output."
+
+        # ── Build peers context ───────────────────────────
+        # Combine generated peers and manual peers into one list
+        all_peers = selected_generated_peers + st.session_state.manual_peers
+
+        if all_peers:
+            peers_list = ", ".join(all_peers)
+            peers_context = f"""
+            Specifically search the climate disclosures and sustainability 
+            reports of these peer companies: {peers_list}.
+            For each peer, search their:
+            - TCFD disclosure or climate report
+            - CDP climate change response
+            - Sustainability or integrated annual report
+            - Any other publicly available climate-related disclosure
+            Extract relevant risks and opportunities from these specific 
+            peer documents and include them in the long-list.
+            """
+        else:
+            peers_context = ""
+
+        # ── Extract text from uploaded documents ─────────
+        document_context = ""
+        if uploaded_files:
+            with st.spinner("Reading uploaded documents..."):
+                document_text = extract_text_from_files(uploaded_files)
+                document_text_trimmed = document_text[:8000]
+                document_context = f"""
+                The user has also provided the following documents for analysis.
+                Extract any relevant climate risks, opportunities, or exposures 
+                mentioned in these documents and include them in the long-list:
+
+                {document_text_trimmed}
+
+                When citing risks found in these documents, reference the 
+                filename as the source.
+                """
 
         with st.spinner(f"Analysing climate risks for {company}... this takes 2-3 minutes"):
 
@@ -306,6 +559,8 @@ if run_button:
             {value_chain_context}
             {value_chain_instruction}
             {framework_context}
+            {peers_context}
+            {document_context}
             """
 
             result = agent.invoke({
@@ -320,9 +575,12 @@ if run_button:
 
         st.subheader(f"Climate Risk Long-List: {company}")
 
-        # Build metadata caption
         framework_display = ', '.join([FRAMEWORKS[f]["label"] for f in selected_frameworks]) if selected_frameworks else "General TCFD"
+        peers_display = ', '.join(all_peers) if all_peers else "None specified"
         st.caption(f"Sector: {sector} | Geography: {geography if geography else 'Not specified'} | Frameworks: {framework_display} | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+        if all_peers:
+            st.caption(f"Peers analysed: {peers_display}")
 
         st.markdown(output)
         st.divider()
@@ -337,6 +595,7 @@ Sector: {sector}
 Geography: {geography if geography else 'Not specified'}
 Value Chain Scope: {', '.join(selected_value_chain) if selected_value_chain else 'Not specified'}
 Frameworks: {framework_display}
+Peers Analysed: {peers_display}
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 {'='*60}
 

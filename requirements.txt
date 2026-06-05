@@ -9,3 +9,5 @@ pypdf
 python-dotenv
 tavily-python
 streamlit
+python-docx
+python-pptx
