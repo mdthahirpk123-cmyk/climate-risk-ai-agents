@@ -1,6 +1,6 @@
 # ============================================================
-# CLIMATE RISK BENCHMARKER — STREAMLIT UI (Version 3)
-# Enhanced with Geography and Value Chain inputs
+# CLIMATE RISK BENCHMARKER — STREAMLIT UI (Version 4)
+# Enhanced with Geography, Value Chain, and Reporting Framework
 # ============================================================
 
 import streamlit as st
@@ -60,6 +60,112 @@ with col_vc2:
 with col_vc3:
     downstream = st.checkbox("Downstream", value=True)
 
+st.divider()
+
+# ── Reporting Framework ───────────────────────────────────
+# Each framework has a name and a description of how it
+# changes the agent's analysis approach
+st.markdown("**Reporting Framework** (optional)")
+st.caption("Select one or more frameworks to align the output to. Leave blank for a general TCFD-aligned output.")
+
+# Framework definitions
+# Each entry: display name, short description shown to user,
+# and instructions sent to the agent
+FRAMEWORKS = {
+    "TCFD": {
+        "label": "TCFD",
+        "description": "Task Force on Climate-related Financial Disclosures",
+        "instruction": """Align the output to the TCFD framework. 
+        Use TCFD's four pillars: Governance, Strategy, Risk Management, 
+        and Metrics & Targets. Classify risks under TCFD categories of 
+        physical risks (acute and chronic) and transition risks 
+        (policy, legal, technology, market, reputational)."""
+    },
+    "CSRD": {
+        "label": "CSRD / ESRS",
+        "description": "European Sustainability Reporting Standards",
+        "instruction": """Align the output to CSRD and ESRS E1 (Climate Change). 
+        Apply double materiality — assess both financial materiality 
+        (how climate affects the company) and impact materiality 
+        (how the company affects the climate). Use ESRS E1 disclosure 
+        requirements including transition plan, physical risks, 
+        and climate-related targets."""
+    },
+    "BRSR": {
+        "label": "BRSR",
+        "description": "Business Responsibility and Sustainability Report (India)",
+        "instruction": """Align the output to BRSR (SEBI). 
+        Focus on India-specific climate risks and regulatory requirements. 
+        Use BRSR's prescribed categories for environmental risks. 
+        Include risks relevant to Indian regulatory context — 
+        Bureau of Energy Efficiency, CPCB regulations, 
+        India's NDC commitments, and PAT scheme."""
+    },
+    "CDP": {
+        "label": "CDP",
+        "description": "CDP Climate Change Questionnaire",
+        "instruction": """Align the output to CDP Climate Change disclosure requirements. 
+        Structure risks using CDP's risk categories and time horizons. 
+        Include financial impact quantification where possible. 
+        Reference CDP scoring methodology and sector-specific 
+        guidance notes."""
+    },
+    "GRI": {
+        "label": "GRI Standards",
+        "description": "Global Reporting Initiative",
+        "instruction": """Align the output to GRI Standards — specifically 
+        GRI 201 (Economic Performance), GRI 302 (Energy), 
+        GRI 303 (Water), and GRI 305 (Emissions). 
+        Focus on material topics and stakeholder relevance. 
+        Include both risks and opportunities framed around 
+        GRI's materiality assessment approach."""
+    },
+    "ISSB": {
+        "label": "ISSB / IFRS S2",
+        "description": "International Sustainability Standards Board",
+        "instruction": """Align the output to IFRS S2 Climate-related Disclosures. 
+        Focus on climate-related risks and opportunities that could 
+        reasonably be expected to affect the entity's cash flows, 
+        access to finance, or cost of capital. Use ISSB's 
+        industry-based metrics from SASB standards where relevant."""
+    },
+    "EU_TAXONOMY": {
+        "label": "EU Taxonomy",
+        "description": "EU Taxonomy for Sustainable Activities",
+        "instruction": """Align the output to EU Taxonomy requirements. 
+        Assess which activities substantially contribute to climate 
+        change mitigation or adaptation. Identify Do No Significant Harm 
+        (DNSH) criteria and minimum social safeguards. 
+        Flag transition and enabling activities relevant to the sector."""
+    },
+    "SFDR": {
+        "label": "SFDR",
+        "description": "Sustainable Finance Disclosure Regulation",
+        "instruction": """Align the output to SFDR Principal Adverse Impact (PAI) indicators. 
+        Focus on climate and environment-related PAIs including 
+        GHG emissions, carbon footprint, fossil fuel exposure, 
+        and biodiversity risks. Frame risks from an 
+        investor and financial product perspective."""
+    }
+}
+
+# Display frameworks in a 4-column grid
+# This makes it look clean and organised on the page
+fw_col1, fw_col2, fw_col3, fw_col4 = st.columns(4)
+fw_columns = [fw_col1, fw_col2, fw_col3, fw_col4]
+
+selected_frameworks = []
+
+for i, (key, fw) in enumerate(FRAMEWORKS.items()):
+    with fw_columns[i % 4]:
+        if st.checkbox(
+            fw["label"],
+            help=fw["description"]
+        ):
+            selected_frameworks.append(key)
+
+st.divider()
+
 # ── Run button ────────────────────────────────────────────
 run_button = st.button("🔍 Run Climate Risk Analysis", type="primary")
 
@@ -113,6 +219,7 @@ def setup_agent():
     Value Chain Affected: [Upstream / Own Operations / Downstream / Multiple]
     Timeframe: [NEAR/MEDIUM/LONG-TERM]
     Materiality: [HIGH/MEDIUM/LOW]
+    Framework Relevance: [which selected frameworks flag this risk]
     Source: [document name or URL]
     ---"""
 
@@ -154,6 +261,23 @@ if run_button:
             value_chain_context = ""
             value_chain_instruction = ""
 
+        # ── Build framework context ───────────────────────
+        if selected_frameworks:
+            framework_names = [FRAMEWORKS[f]["label"] for f in selected_frameworks]
+            framework_instructions = "\n".join([FRAMEWORKS[f]["instruction"] for f in selected_frameworks])
+            framework_context = f"""
+            The output must be aligned to these reporting frameworks: {', '.join(framework_names)}.
+            
+            Framework-specific instructions:
+            {framework_instructions}
+            
+            For each risk and opportunity, include a 'Framework Relevance' field 
+            showing which of these frameworks ({', '.join(framework_names)}) 
+            specifically flag or require disclosure of this risk.
+            """
+        else:
+            framework_context = "Use general TCFD-aligned categories for the output."
+
         with st.spinner(f"Analysing climate risks for {company}... this takes 2-3 minutes"):
 
             question = f"""
@@ -181,6 +305,7 @@ if run_button:
             {geography_instruction}
             {value_chain_context}
             {value_chain_instruction}
+            {framework_context}
             """
 
             result = agent.invoke({
@@ -194,7 +319,10 @@ if run_button:
         st.divider()
 
         st.subheader(f"Climate Risk Long-List: {company}")
-        st.caption(f"Sector: {sector} | Geography: {geography if geography else 'Not specified'} | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+        # Build metadata caption
+        framework_display = ', '.join([FRAMEWORKS[f]["label"] for f in selected_frameworks]) if selected_frameworks else "General TCFD"
+        st.caption(f"Sector: {sector} | Geography: {geography if geography else 'Not specified'} | Frameworks: {framework_display} | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
         st.markdown(output)
         st.divider()
@@ -208,6 +336,7 @@ Company: {company}
 Sector: {sector}
 Geography: {geography if geography else 'Not specified'}
 Value Chain Scope: {', '.join(selected_value_chain) if selected_value_chain else 'Not specified'}
+Frameworks: {framework_display}
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 {'='*60}
 
