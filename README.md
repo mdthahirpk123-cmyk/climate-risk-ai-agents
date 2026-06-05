@@ -1,4 +1,4 @@
-# 🌍 Climate Risk Benchmarker
+# 🌍 ClimAlte
 
 An AI-powered tool that automatically generates TCFD-aligned 
 climate risk long-lists for any company by searching peer 
