@@ -1,6 +1,6 @@
 # ============================================================
-# CLIMATE RISK BENCHMARKER — STREAMLIT UI
-# A web app interface for Agent 1
+# CLIMATE RISK BENCHMARKER — STREAMLIT UI (Version 2)
+# Enhanced with Geography input
 # ============================================================
 
 import streamlit as st
@@ -14,8 +14,6 @@ from datetime import datetime
 load_dotenv()
 
 # ── Page configuration ────────────────────────────────────
-# This sets up the browser tab title and layout
-# Must be the first Streamlit command in your file
 st.set_page_config(
     page_title="Climate Risk Benchmarker",
     page_icon="🌍",
@@ -23,59 +21,52 @@ st.set_page_config(
 )
 
 # ── Page header ───────────────────────────────────────────
-# st.title = big heading
-# st.markdown = smaller text, supports formatting
 st.title("🌍 Climate Risk Benchmarker")
-st.markdown("Searches peer TCFD reports, CDP disclosures, and industry frameworks to generate a climate risk long-list for any company.")
-
-# A horizontal line to separate the header from the content
+st.markdown("**Powered by AI** — searches peer TCFD reports, CDP disclosures, and sustainability reports to generate a climate risk long-list for any company.")
+st.caption("* Required fields")
 st.divider()
 
 # ── Input section ─────────────────────────────────────────
-# st.columns splits the page into side-by-side sections
-# [1, 1] means two equal columns
 col1, col2 = st.columns([1, 1])
 
-# Left column — company name input
 with col1:
-    # st.text_input creates a text box
-    # The text inside the brackets is the label shown above the box
     company = st.text_input(
-        "Company Name",
+        "Company Name *",
         placeholder="e.g. Adelaide Airport, Tata Steel, IKEA"
     )
 
-# Right column — sector input
 with col2:
     sector = st.text_input(
-        "Sector / Industry",
+        "Sector / Industry *",
         placeholder="e.g. Airport Operations, Steel Manufacturing, Retail"
     )
 
+# Geography — full width below the two columns
+geography = st.text_input(
+    "Geography (optional)",
+    placeholder="e.g. India, Australia, GCC, Global Operations"
+)
+
 # ── Run button ────────────────────────────────────────────
-# st.button creates a clickable button
-# When clicked it returns True, otherwise False
 run_button = st.button("🔍 Run Climate Risk Analysis", type="primary")
 
 # ── Agent setup ───────────────────────────────────────────
-# We use st.cache_resource so the agent is only created once
-# Without this, it would recreate the agent every time you click the button
-# Think of it like loading a car once instead of rebuilding it every trip
 @st.cache_resource
 def setup_agent():
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
-    
+
     search_broad = TavilySearch(max_results=3)
     search_deep = TavilySearch(max_results=5)
     tools = [search_broad, search_deep]
-    
+
     SYSTEM_PROMPT = """You are a senior climate risk analyst with 10 years 
     of experience in TCFD-aligned risk assessments at a Big 4 consulting firm.
 
     Your job is to create a comprehensive long-list of climate-related risks 
     and opportunities for a company based on:
     - Peer company TCFD disclosures
-    - CDP climate change responses  
+    - CDP climate change responses
+    - Sustainability and integrated annual reports
     - Industry association reports
     - IPCC sector-specific guidance
     - Regulatory frameworks (EU Taxonomy, CSRD, SFDR)
@@ -93,7 +84,7 @@ def setup_agent():
 
     2. TIMEFRAME — assign one of:
        - NEAR-TERM: 0-3 years
-       - MEDIUM-TERM: 3-10 years  
+       - MEDIUM-TERM: 3-10 years
        - LONG-TERM: 10+ years
 
     3. MATERIALITY — rate each as HIGH, MEDIUM, or LOW
@@ -110,94 +101,85 @@ def setup_agent():
     Materiality: [HIGH/MEDIUM/LOW]
     Source: [document name or URL]
     ---"""
-    
+
     agent = create_react_agent(
         model=llm,
         tools=tools,
         prompt=SYSTEM_PROMPT
     )
-    
+
     return agent
 
-# ── Main logic — what happens when button is clicked ──────
-# This only runs when the button is clicked AND
-# both company and sector fields are filled in
+# ── Main logic ────────────────────────────────────────────
 if run_button:
-    
-    # Check if both fields are filled in
-    # If either is empty, show a warning instead of running
+
     if not company or not sector:
-        st.warning("⚠️ Please fill in both the Company Name and Sector fields.")
-    
+        st.warning("⚠️ Please fill in Company Name and Sector — these are required. All other fields are optional.")
+
     else:
-        # Set up the agent
         agent = setup_agent()
-        
-        # Show a spinner while the agent is working
-        # Everything inside this "with" block runs while spinner shows
+
+        # Build geography context
+        geography_context = f"The company operates in {geography}." if geography else ""
+        geography_search = f"in {geography}" if geography else ""
+        geography_instruction = f"Pay particular attention to geography-specific physical risks for {geography} such as region-specific hazards, local regulations, and climate patterns." if geography else ""
+
         with st.spinner(f"Analysing climate risks for {company}... this takes 2-3 minutes"):
-            
-            # Build the question
+
             question = f"""
             I need a comprehensive climate risk long-list for {company}, 
             a company in the {sector} sector.
-            
+            {geography_context}
+
             Please search for and analyse:
             1. TCFD disclosures from peer companies in the {sector} sector
             2. CDP climate change responses for {sector} companies
-            3. Physical climate risks specific to {sector} operations
-            4. Transition risks from climate policy affecting {sector}
-            5. Climate-related opportunities for {sector} companies
-            
+            3. Sustainability and annual reports from peer {sector} companies
+            4. Physical climate risks specific to {sector} operations {geography_search}
+            5. Transition risks from climate policy affecting {sector} {geography_search}
+            6. Climate-related opportunities for {sector} companies
+
             Search specifically for:
             - "{sector} TCFD climate risk disclosure"
-            - "{sector} CDP climate change physical risk"
-            - "{sector} climate transition risk carbon pricing"
+            - "{sector} CDP climate change physical risk {geography_search}"
+            - "{sector} climate transition risk carbon pricing {geography_search}"
             - "{company} climate risk sustainability report"
-            
+
             Create a long-list of at least 8 climate risks and opportunities.
             Follow the exact format in your instructions.
             Include both physical AND transition risks.
+            {geography_instruction}
             """
-            
-            # Run the agent
+
             result = agent.invoke({
                 "messages": [("human", question)]
             })
-            
-            # Extract the output
+
             output = result["messages"][-1].content
-        
+
         # ── Display results ───────────────────────────────
         st.success("✅ Analysis complete!")
         st.divider()
-        
-        # Show the company and sector as a subtitle
+
         st.subheader(f"Climate Risk Long-List: {company}")
-        st.caption(f"Sector: {sector} | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-        
-        # Display the output
-        # st.markdown renders formatted text nicely
+        st.caption(f"Sector: {sector} | Geography: {geography if geography else 'Not specified'} | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
         st.markdown(output)
-        
         st.divider()
-        
+
         # ── Download button ───────────────────────────────
-        # This creates a button that lets users download the results
-        # as a text file — no saving to disk needed
         timestamp = datetime.now().strftime("%Y%m%d_%H%M")
         filename = f"risk_longlist_{company.replace(' ', '_')}_{timestamp}.txt"
-        
-        # Prepare the full content for download
+
         download_content = f"""CLIMATE RISK LONG-LIST
 Company: {company}
 Sector: {sector}
+Geography: {geography if geography else 'Not specified'}
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 {'='*60}
 
 {output}"""
-        
-        # st.download_button creates a download button
+
         st.download_button(
             label="📥 Download Results as Text File",
             data=download_content,
