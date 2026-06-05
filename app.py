@@ -20,7 +20,7 @@ load_dotenv()
 
 # ── Page configuration ────────────────────────────────────
 st.set_page_config(
-    page_title="ClimAlte"
+    page_title="ClimAlte",
     page_icon="🌍",
     layout="wide"
 )
@@ -42,8 +42,8 @@ if "manual_peer_input" not in st.session_state:
     st.session_state.manual_peer_input = ""
 
 # ── Page header ───────────────────────────────────────────
-st.title("🌍 Climate Risk Benchmarker")
-st.markdown("**Seaches peer TCFD reports, CDP disclosures, and sustainability reports to generate a climate risk long-list for any company.")
+st.title("🌍 ClimAlte")
+st.markdown("Seaches peer TCFD reports, CDP disclosures, and sustainability reports to generate a climate risk long-list for any company.")
 st.caption("* Required fields")
 st.divider()
 
